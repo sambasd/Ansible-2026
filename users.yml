@@ -1,0 +1,27 @@
+---
+- name: Create Linux users and group
+  hosts: rhel_servers
+  become: true
+
+  tasks:
+
+    - name: Create application group
+      ansible.builtin.group:
+        name: appgroup
+        state: present
+
+    - name: Create application user
+      ansible.builtin.user:
+        name: appuser
+        group: appgroup
+        shell: /bin/bash
+        create_home: true
+        state: present
+
+    - name: Create deployment user
+      ansible.builtin.user:
+        name: deployuser
+        group: appgroup
+        shell: /bin/bash
+        create_home: true
+        state: present

@@ -1,0 +1,22 @@
+---
+- name: Create application directory
+  hosts: rhel_servers
+  become: true
+
+  tasks:
+    - name: Create /app directory
+      ansible.builtin.file:
+        path: /app
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Verify /app directory
+      ansible.builtin.command:
+        cmd: df -h /app
+      register: app_disk
+
+    - name: Display filesystem information
+      ansible.builtin.debug:
+        var: app_disk.stdout_lines

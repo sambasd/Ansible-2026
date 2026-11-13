@@ -1,0 +1,64 @@
+
+---
+- name: Configure 1 GB swap on RHEL servers
+  hosts: rhel_servers
+  become: true
+
+  tasks:
+
+    - name: Check existing swap
+      ansible.builtin.command:
+        cmd: swapon --noheadings --raw --show=NAME
+      register: active_swap
+      changed_when: false
+
+    - name: Check whether swap file exists
+      ansible.builtin.stat:
+        path: /swapfile
+      register: swapfile_info
+
+    - name: Ensure existing swap file is not overwritten
+      ansible.builtin.assert:
+        that:
+          - not swapfile_info.stat.exists or '/swapfile' in active_swap.stdout_lines
+        fail_msg: "An inactive /swapfile already exists. Inspect it before proceeding."
+
+    - name: Create 1 GB swap file
+      ansible.builtin.command:
+        cmd: fallocate -l 1G /swapfile
+        creates: /swapfile
+      register: swapfile_created
+
+    - name: Set secure swap file permissions
+      ansible.builtin.file:
+        path: /swapfile
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Initialize swap file
+      ansible.builtin.command:
+        cmd: mkswap /swapfile
+      when: swapfile_created.changed
+
+    - name: Enable swap
+      ansible.builtin.command:
+        cmd: swapon /swapfile
+      when: swapfile_created.changed
+
+    - name: Configure persistent swap
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        line: '/swapfile none swap sw 0 0'
+        state: present
+
+    - name: Verify swap configuration
+      ansible.builtin.command:
+        cmd: swapon --show
+      register: swap_status
+      changed_when: false
+
+    - name: Display swap status
+      ansible.builtin.debug:
+        var: swap_status.stdout_lines
+
