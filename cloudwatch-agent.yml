@@ -1,0 +1,123 @@
+---
+- name: Install and configure Amazon CloudWatch Agent on RHEL 9
+  hosts: rhel_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    cloudwatch_agent_rpm_url: "https://amazoncloudwatch-agent.s3.amazonaws.com/redhat/amd64/latest/amazon-cloudwatch-agent.rpm"
+    cloudwatch_agent_rpm_path: "/tmp/amazon-cloudwatch-agent.rpm"
+    cloudwatch_agent_config_path: "/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
+
+  tasks:
+    - name: Download CloudWatch Agent RPM
+      ansible.builtin.get_url:
+        url: "{{ cloudwatch_agent_rpm_url }}"
+        dest: "{{ cloudwatch_agent_rpm_path }}"
+        mode: "0644"
+        timeout: 60
+
+    - name: Install CloudWatch Agent
+      ansible.builtin.dnf:
+        name: "{{ cloudwatch_agent_rpm_path }}"
+        state: present
+        disable_gpg_check: true
+
+    - name: Configure CloudWatch Agent
+      ansible.builtin.copy:
+        dest: "{{ cloudwatch_agent_config_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          {
+            "agent": {
+              "metrics_collection_interval": 60,
+              "run_as_user": "root"
+            },
+            "metrics": {
+              "namespace": "RHEL/EC2",
+              "append_dimensions": {
+                "InstanceId": "${aws:InstanceId}",
+                "InstanceType": "${aws:InstanceType}"
+              },
+              "metrics_collected": {
+                "cpu": {
+                  "measurement": [
+                    "cpu_usage_idle",
+                    "cpu_usage_user",
+                    "cpu_usage_system"
+                  ],
+                  "totalcpu": true,
+                  "metrics_collection_interval": 60
+                },
+                "mem": {
+                  "measurement": [
+                    "mem_used_percent"
+                  ],
+                  "metrics_collection_interval": 60
+                },
+                "disk": {
+                  "measurement": [
+                    "used_percent"
+                  ],
+                  "resources": [
+                    "/"
+                  ],
+                  "metrics_collection_interval": 60
+                }
+              }
+            },
+            "logs": {
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    {
+                      "file_path": "/var/log/messages",
+                      "log_group_name": "/aws/ec2/rhel/messages",
+                      "log_stream_name": "{instance_id}"
+                    },
+                    {
+                      "file_path": "/var/log/secure",
+                      "log_group_name": "/aws/ec2/rhel/secure",
+                      "log_stream_name": "{instance_id}"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+
+    - name: Apply CloudWatch Agent configuration
+      ansible.builtin.command:
+        argv:
+          - /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
+          - -a
+          - fetch-config
+          - -m
+          - ec2
+          - -c
+          - "file:{{ cloudwatch_agent_config_path }}"
+          - -s
+      register: cloudwatch_config_result
+      changed_when: true
+
+    - name: Enable and start CloudWatch Agent
+      ansible.builtin.systemd:
+        name: amazon-cloudwatch-agent
+        enabled: true
+        state: started
+
+    - name: Verify CloudWatch Agent service
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - amazon-cloudwatch-agent
+      register: cloudwatch_status
+      changed_when: false
+      failed_when: cloudwatch_status.stdout != "active"
+
+    - name: Display CloudWatch Agent status
+      ansible.builtin.debug:
+        msg: "CloudWatch Agent is active on {{ inventory_hostname }}"
