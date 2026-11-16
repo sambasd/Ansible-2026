@@ -1,0 +1,81 @@
+
+---
+- name: Install Splunk Universal Forwarder on RHEL 9.8
+  hosts: rhel_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    splunk_rpm_source: /opt/automation/packages/splunkforwarder.rpm
+    splunk_rpm_destination: /tmp/splunkforwarder.rpm
+    splunk_home: /opt/splunkforwarder
+    splunk_user: splunkfwd
+    splunk_group: splunkfwd
+
+  tasks:
+
+    - name: Validate RHEL version
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == "RedHat"
+          - ansible_facts.distribution_major_version == "9"
+        fail_msg: "This playbook is intended for RHEL 9."
+
+    - name: Check Splunk RPM on controller
+      ansible.builtin.stat:
+        path: "{{ splunk_rpm_source }}"
+      delegate_to: localhost
+      run_once: true
+      register: splunk_rpm_check
+
+    - name: Stop if RPM is missing
+      ansible.builtin.assert:
+        that:
+          - splunk_rpm_check.stat.exists
+        fail_msg: "Splunk RPM not found on Ansible controller."
+      run_once: true
+
+    - name: Create Splunk group
+      ansible.builtin.group:
+        name: "{{ splunk_group }}"
+        state: present
+
+    - name: Create Splunk service user
+      ansible.builtin.user:
+        name: "{{ splunk_user }}"
+        group: "{{ splunk_group }}"
+        system: true
+        create_home: true
+        state: present
+
+    - name: Copy Splunk RPM to RHEL servers
+      ansible.builtin.copy:
+        src: "{{ splunk_rpm_source }}"
+        dest: "{{ splunk_rpm_destination }}"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Install Splunk Universal Forwarder
+      ansible.builtin.dnf:
+        name: "{{ splunk_rpm_destination }}"
+        state: present
+
+    - name: Set Splunk directory ownership
+      ansible.builtin.file:
+        path: "{{ splunk_home }}"
+        owner: "{{ splunk_user }}"
+        group: "{{ splunk_group }}"
+        recurse: true
+
+    - name: Verify Splunk installation
+      ansible.builtin.command:
+        cmd: "{{ splunk_home }}/bin/splunk version"
+      become_user: "{{ splunk_user }}"
+      changed_when: false
+      register: splunk_version
+
+    - name: Display installed Splunk version
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ splunk_version.stdout }}"
+
