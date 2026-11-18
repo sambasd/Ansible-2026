@@ -1,0 +1,8 @@
+---
+- name: Test RHEL server connectivity from AWX
+  hosts: rhel_servers
+  gather_facts: false
+
+  tasks:
+    - name: Check SSH and Ansible connectivity
+      ansible.builtin.ping:
