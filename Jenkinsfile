@@ -24,7 +24,7 @@ pipeline {
         ANSIBLE_PLAYBOOK = '/opt/ansible-venv/bin/ansible-playbook'
 
         INVENTORY = 'inventory.ini'
-        PEM_KEY = '/opt/automation/Terraform/rhel-terraform-key.pem'
+        PEM_KEY = '/var/lib/jenkins/workspace/Terraform/rhel-terraform-key.pem'
 
         JIRA_API_BASE = 'https://api.atlassian.com/ex/jira/88cf78c6-5fcd-41ea-b0cf-e3ab55e51a1d'
     }
