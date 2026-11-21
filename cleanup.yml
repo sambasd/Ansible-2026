@@ -1,0 +1,53 @@
+---
+- name: Rollback Ansible Configuration
+  hosts: rhel_servers
+  become: true
+  gather_facts: true
+
+  tasks:
+
+    # Stop CloudWatch Agent
+    - name: Stop CloudWatch Agent
+      ansible.builtin.service:
+        name: amazon-cloudwatch-agent
+        state: stopped
+      failed_when: false
+
+    # Remove CloudWatch Agent
+    - name: Remove CloudWatch Agent
+      ansible.builtin.dnf:
+        name: amazon-cloudwatch-agent
+        state: absent
+
+    # Remove Linux users
+    - name: Remove appuser
+      ansible.builtin.user:
+        name: appuser
+        state: absent
+        remove: false
+
+    - name: Remove deployuser
+      ansible.builtin.user:
+        name: deployuser
+        state: absent
+        remove: false
+
+    # Remove Linux group
+    - name: Remove appgroup
+      ansible.builtin.group:
+        name: appgroup
+        state: absent
+
+    # Verify users and group
+    - name: Verify rollback
+      ansible.builtin.shell: |
+        id appuser || true
+        id deployuser || true
+        getent group appgroup || true
+        rpm -q amazon-cloudwatch-agent || true
+      register: rollback_result
+      changed_when: false
+
+    - name: Display rollback verification
+      ansible.builtin.debug:
+        var: rollback_result.stdout_lines
