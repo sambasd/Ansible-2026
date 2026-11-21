@@ -1,0 +1,182 @@
+---
+- name: Complete RHEL Server Patching
+  hosts: rhel_servers
+  become: yes
+  gather_facts: yes
+  serial: 1
+  any_errors_fatal: true
+
+  tasks:
+
+    # ==================================================
+    # STAGE 1: PRE-PATCH HEALTH CHECKS
+    # ==================================================
+
+    - name: "Stage 1 - Display server information"
+      ansible.builtin.debug:
+        msg:
+          - "Server: {{ inventory_hostname }}"
+          - "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Current Kernel: {{ ansible_kernel }}"
+
+    - name: "Stage 1 - Check server uptime"
+      ansible.builtin.command:
+        cmd: uptime
+      register: uptime_before
+      changed_when: false
+
+    - name: "Stage 1 - Display uptime"
+      ansible.builtin.debug:
+        var: uptime_before.stdout
+
+    # ==================================================
+    # STAGE 2: DISK SPACE CHECK
+    # ==================================================
+
+    - name: "Stage 2 - Check filesystem space"
+      ansible.builtin.command:
+        cmd: df -h
+      register: disk_before
+      changed_when: false
+
+    - name: "Stage 2 - Display filesystem space"
+      ansible.builtin.debug:
+        var: disk_before.stdout_lines
+
+    - name: "Stage 2 - Check failed system services"
+      ansible.builtin.command:
+        cmd: systemctl --failed --no-legend
+      register: failed_services_before
+      changed_when: false
+
+    - name: "Stage 2 - Display failed services before patching"
+      ansible.builtin.debug:
+        msg: "{{ failed_services_before.stdout_lines | default([]) }}"
+
+    # ==================================================
+    # STAGE 3: CHECK AVAILABLE UPDATES
+    # ==================================================
+
+    - name: "Stage 3 - Refresh DNF metadata"
+      ansible.builtin.dnf:
+        update_cache: yes
+
+    - name: "Stage 3 - Check available package updates"
+      ansible.builtin.command:
+        cmd: dnf check-update
+      register: available_updates
+      changed_when: false
+      failed_when: available_updates.rc not in [0, 100]
+
+    - name: "Stage 3 - Display available updates"
+      ansible.builtin.debug:
+        msg: "{{ available_updates.stdout_lines | default(['No updates available']) }}"
+
+    # ==================================================
+    # STAGE 4: INSTALL PACKAGE UPDATES
+    # ==================================================
+
+    - name: "Stage 4 - Update all installed packages"
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_cache: yes
+      register: patch_result
+
+    - name: "Stage 4 - Display patch result"
+      ansible.builtin.debug:
+        msg: "Package update completed on {{ inventory_hostname }}. Changed: {{ patch_result.changed }}"
+
+    # ==================================================
+    # STAGE 5: REBOOT SERVER
+    # ==================================================
+
+    - name: "Stage 5 - Reboot server after package updates"
+      ansible.builtin.reboot:
+        reboot_timeout: 1800
+        connect_timeout: 10
+        post_reboot_delay: 30
+        test_command: whoami
+      when: patch_result.changed
+
+    - name: "Stage 5 - Display reboot status"
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Server reboot completed' if patch_result.changed
+             else 'No package changes; reboot not required' }}
+
+    # ==================================================
+    # STAGE 6: VERIFY SERVER CONNECTIVITY
+    # ==================================================
+
+    - name: "Stage 6 - Verify Ansible connectivity"
+      ansible.builtin.ping:
+
+    - name: "Stage 6 - Check server uptime after patching"
+      ansible.builtin.command:
+        cmd: uptime
+      register: uptime_after
+      changed_when: false
+
+    # ==================================================
+    # STAGE 7: VERIFY KERNEL AND OS
+    # ==================================================
+
+    - name: "Stage 7 - Check running kernel"
+      ansible.builtin.command:
+        cmd: uname -r
+      register: kernel_after
+      changed_when: false
+
+    - name: "Stage 7 - Check RHEL version"
+      ansible.builtin.command:
+        cmd: cat /etc/redhat-release
+      register: os_after
+      changed_when: false
+
+    - name: "Stage 7 - Display kernel and OS"
+      ansible.builtin.debug:
+        msg:
+          - "Running Kernel: {{ kernel_after.stdout }}"
+          - "OS Version: {{ os_after.stdout }}"
+          - "Previous Kernel: {{ ansible_kernel }}"
+
+    # ==================================================
+    # STAGE 8: FINAL POST-PATCH VERIFICATION
+    # ==================================================
+
+    - name: "Stage 8 - Check filesystem space after patching"
+      ansible.builtin.command:
+        cmd: df -h
+      register: disk_after
+      changed_when: false
+
+    - name: "Stage 8 - Check failed services after patching"
+      ansible.builtin.command:
+        cmd: systemctl --failed --no-legend
+      register: failed_services_after
+      changed_when: false
+
+    - name: "Stage 8 - Check remaining package updates"
+      ansible.builtin.command:
+        cmd: dnf check-update
+      register: remaining_updates
+      changed_when: false
+      failed_when: remaining_updates.rc not in [0, 100]
+
+    - name: "Stage 8 - Display final patching report"
+      ansible.builtin.debug:
+        msg:
+          - "======================================"
+          - "PATCHING COMPLETED"
+          - "Server: {{ inventory_hostname }}"
+          - "OS: {{ os_after.stdout }}"
+          - "Kernel: {{ kernel_after.stdout }}"
+          - "Uptime: {{ uptime_after.stdout }}"
+          - "Disk Space:"
+          - "{{ disk_after.stdout_lines }}"
+          - "Failed Services:"
+          - "{{ failed_services_after.stdout_lines | default([]) }}"
+          - "Remaining Updates:"
+          - "{{ remaining_updates.stdout_lines | default(['No updates available']) }}"
+          - "======================================"
